@@ -1,5 +1,8 @@
 var https = require('https');
 var querystring = require('querystring');
+var fs = require('fs');
+var computeManagement = require('azure-asm-compute');
+var config = require('./config.json');
 
 var sendhttpoptions = {
   method:'POST',
@@ -14,21 +17,17 @@ var getTokenHttpOptions = {
 };
 
 var payload = '{"touser":"@all", "msgtype":"text","agentid":"3", "text": {"content":"check status"}}';
+var payloadobj = JSON.parse(payload);
 
 function sendMessage(passpaylod, token) {
     console.log('token in send:', token);
     var sendMessagePath = '/cgi-bin/message/send?' + querystring.stringify({access_token:token});
     sendhttpoptions.path = sendMessagePath;
 
-    var payloadobj = JSON.parse(passpaylod);
-    console.log(JSON.parse(passpaylod).text.content);
-    var date = new Date();
-    payloadobj.text.content = "Check Service Status: " + date.getHours();
-    var sendpayload = JSON.stringify(payloadobj);
         
     sendhttpoptions.headers = {
         "Content-Type":'application/json',
-        "Content-Length":sendpayload.length        
+        "Content-Length":passpaylod.length        
     };
     
     var req = https.request(sendhttpoptions, function(res) {
@@ -46,7 +45,7 @@ function sendMessage(passpaylod, token) {
         console.log(error);
     });
     
-    req.write(sendpayload + '\n');
+    req.write(passpaylod + '\n');
     req.end();
     
 }
@@ -72,7 +71,32 @@ function Trigger(appId, secret, sendpayload, sendfunc) {
     req.end();
 }
 
-Trigger('wx5ae0e14195a4e9d0','C69nX2JrQFmBAYeKdw7g91-1xl-TJWQuZZU6r6BaGMdIzUlzahwQvfThyXx4Y4DN', payload, sendMessage);
+function monitor(updateTokenfunc) {
+    var computeManagementClient = computeManagement.createComputeManagementClient(computeManagement.createCertificateCloudCredentials({
+      subscriptionId: config.subscriptionId,
+      pem: fs.readFileSync(config.managementcert, 'utf-8').toString()
+    }));
+        
+    computeManagementClient.deployments.getByName(config.serviceName,config.deploymentName, function (err, result) {
+      if (err) {
+        console.log("error in get azure status.");
+        console.log(err);
+      }
+      else{
+        for (var i = 0; i < result.roleInstances.length; i++) {
+          var instance = result.roleInstances[i];
+          console.log("Virtual Machine status: " + instance.instanceStatus);
+          var title = "Virtual Machine status: ";
+          payloadobj.text.content = title.concat(instance.instanceStatus);
+        }
+        
+        console.log("payload: " + JSON.stringify(payloadobj));
+        updateTokenfunc('wx5ae0e14195a4e9d0','C69nX2JrQFmBAYeKdw7g91-1xl-TJWQuZZU6r6BaGMdIzUlzahwQvfThyXx4Y4DN', payloadobj, sendMessage);
+      }
+    });
+}
+
+monitor(Trigger);
 
 
 
